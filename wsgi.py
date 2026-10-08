@@ -1,7 +1,8 @@
-﻿import os, sys
+import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
+os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 
-from ai智能问答 import create_app
+from app_factory import create_app
 app = create_app()
