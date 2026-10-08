@@ -29,7 +29,7 @@ def _ensure_loaded():
         return True
 
     if not os.path.exists(MODEL_PATH):
-        print(f"[FaceRecognizer] 妯″瀷涓嶅瓨鍦? {MODEL_PATH}")
+        print(f"[FaceRecognizer] 模型不存在: {MODEL_PATH}")
         return False
 
     try:
@@ -52,10 +52,10 @@ def _ensure_loaded():
         )
 
         _available = True
-        print(f"[FaceRecognizer] 妯″瀷鍔犺浇鎴愬姛: {_class_names}")
+        print(f"[FaceRecognizer] 模型加载成功: {_class_names}")
         return True
     except Exception as e:
-        print(f"[FaceRecognizer] 鍔犺浇澶辫触: {e}")
+        print(f"[FaceRecognizer] 加载失败: {e}")
         return False
 
 
@@ -71,16 +71,16 @@ def get_class_names():
 
 def recognize_image_bytes(image_bytes: bytes) -> dict:
     if not _ensure_loaded():
-        return {"success": False, "error": "浜鸿劯璇嗗埆妯″瀷鏈姞杞?}
+        return {"success": False, "error": "人脸识别模型未加载"}
 
     try:
         arr = np.frombuffer(image_bytes, dtype=np.uint8)
         img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     except Exception as e:
-        return {"success": False, "error": f"鍥剧墖瑙ｆ瀽澶辫触: {e}"}
+        return {"success": False, "error": f"图片解析失败: {e}"}
 
     if img is None:
-        return {"success": False, "error": "鏃犳硶瑙ｇ爜鍥剧墖"}
+        return {"success": False, "error": "无法解码图片"}
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     faces = _face_cascade.detectMultiScale(
