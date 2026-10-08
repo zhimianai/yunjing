@@ -1,0 +1,26 @@
+[
+  {
+    "role": "user",
+    "content": "🎨 生成图片: cat"
+  },
+  {
+    "role": "assistant",
+    "content": "已为你生成图片：\n\n<img src=\"/static/images/img_20260919_223923_2136e34d.png\" style=\"max-width:100%;border-radius:8px;margin:8px 0;\">"
+  },
+  {
+    "role": "user",
+    "content": "🎨 生成图片: cat2"
+  },
+  {
+    "role": "assistant",
+    "content": "已为你生成图片：\n\n<img src=\"/static/images/img_20260919_224311_83a4435c.png\" style=\"max-width:100%;border-radius:8px;margin:8px 0;\">"
+  },
+  {
+    "role": "user",
+    "content": "hello"
+  },
+  {
+    "role": "assistant",
+    "content": "你好呀！很高兴见到你～有什么需要我帮忙的吗？无论是聊天、解答问题还是生成图片，我都在行哦！ 😊"
+  }
+]
