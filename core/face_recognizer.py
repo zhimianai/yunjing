@@ -9,7 +9,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ""
 import cv2
 
 _MODEL_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "浜鸿劯璇嗗埆妯″瀷", "models")
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")
 )
 MODEL_PATH = os.path.join(_MODEL_DIR, "face_recognition_model.h5")
 CLASS_PATH = os.path.join(_MODEL_DIR, "class_names.json")
