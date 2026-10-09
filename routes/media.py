@@ -6,6 +6,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify
 
 from config import BASE_DIR
+from core.users import verify_token
 from core.storage import (
     load_conversations_from_file,
     save_conversations_to_file,
@@ -21,6 +22,7 @@ files_bp = Blueprint('files', __name__)
 
 _media_bot_ref = None
 _files_bot_ref = None
+_user_conv_cache = {}
 
 
 def set_bot(bot):
@@ -29,13 +31,21 @@ def set_bot(bot):
     _files_bot_ref = bot
 
 
-def _ensure_conversation_for(bot_ref):
-    if not bot_ref.current_conversation_id:
-        conv_id = str(uuid.uuid4())
-        bot_ref.current_conversation_id = conv_id
-        bot_ref.conversation_history = []
+def _get_user_id():
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    user = verify_token(token)
+    return user['user_id'] if user else None
 
-        conversations = load_conversations_from_file()
+
+def _ensure_conversation(user_id):
+    cache_key = user_id or "anon"
+    if cache_key not in _user_conv_cache:
+        conv_id = str(uuid.uuid4())
+        _user_conv_cache[cache_key] = {
+            'id': conv_id,
+            'history': []
+        }
+        conversations = load_conversations_from_file(user_id)
         new_conv = {
             'id': conv_id,
             'title': '新对话',
@@ -43,7 +53,8 @@ def _ensure_conversation_for(bot_ref):
             'messages': []
         }
         conversations.insert(0, new_conv)
-        save_conversations_to_file(conversations)
+        save_conversations_to_file(conversations, user_id)
+    return _user_conv_cache[cache_key]
 
 
 @media_bp.route('/api/recognize_image', methods=['POST'])
@@ -51,7 +62,8 @@ def recognize_image():
     if not _media_bot_ref:
         return jsonify({'success': False, 'error': 'Bot not initialized'}), 400
 
-    _ensure_conversation_for(_media_bot_ref)
+    user_id = _get_user_id()
+    conv = _ensure_conversation(user_id)
 
     if 'image' not in request.files:
         return jsonify({'success': False, 'error': '未上传图片'}), 400
@@ -79,17 +91,14 @@ def recognize_image():
         result = _media_bot_ref.recognize_image(image_base64, prompt)
 
         if result and not result.startswith("错误") and not result.startswith("所有"):
-            user_msg = f"🖼️ {file.filename or '粘贴的图片'}\n{prompt}"
-            _media_bot_ref.conversation_history.append({"role": "user", "content": user_msg})
-            _media_bot_ref.conversation_history.append({"role": "assistant", "content": result})
-            _media_bot_ref.conversation_history = trim_history(_media_bot_ref.conversation_history)
+            image_tag = f'\n<img src="data:image/jpeg;base64,{image_base64}" style="max-width:200px;border-radius:8px;margin-top:6px;border:1px solid #eee;">'
+            user_msg = f"🖼️ {file.filename or '粘贴的图片'}\n{prompt}{image_tag}"
+            conv['history'].append({"role": "user", "content": user_msg})
+            conv['history'].append({"role": "assistant", "content": result})
+            conv['history'] = trim_history(conv['history'])
 
             title = prompt[:20] + '...' if len(prompt) > 20 else prompt
-            update_current_conversation(
-                _media_bot_ref.current_conversation_id,
-                _media_bot_ref.conversation_history,
-                title
-            )
+            update_current_conversation(conv['id'], conv['history'], title, user_id)
 
         return jsonify({'success': True, 'result': result})
     except Exception as e:
@@ -104,14 +113,17 @@ def generate_image():
     data = request.json
     prompt = data.get('prompt', '')
     size = data.get('size', '1024x1024')
+    reference_image = (data.get('reference_image') or '').strip() or None
 
     if not prompt:
         return jsonify({'success': False, 'error': '提示词不能为空'}), 400
 
-    _ensure_conversation_for(_media_bot_ref)
+    user_id = _get_user_id()
+    conv = _ensure_conversation(user_id)
 
     try:
-        result = _media_bot_ref.generate_image(prompt, size)
+        result = _media_bot_ref.generate_image(prompt, size,
+            reference_image=reference_image)
         if result.get("success") and result.get("image_data"):
             images_dir = os.path.join(BASE_DIR, "static", "images")
             os.makedirs(images_dir, exist_ok=True)
@@ -135,36 +147,24 @@ def generate_image():
             if revised:
                 assistant_message += f"\n\n**提示词**: {revised}"
 
-            _media_bot_ref.conversation_history.append({"role": "user", "content": user_message})
-            _media_bot_ref.conversation_history.append({"role": "assistant", "content": assistant_message})
-            _media_bot_ref.conversation_history = trim_history(_media_bot_ref.conversation_history)
+            conv['history'].append({"role": "user", "content": user_message})
+            conv['history'].append({"role": "assistant", "content": assistant_message})
+            conv['history'] = trim_history(conv['history'])
 
             title = prompt[:20] + '...' if len(prompt) > 20 else prompt
-            update_current_conversation(
-                _media_bot_ref.current_conversation_id,
-                _media_bot_ref.conversation_history,
-                title
-            )
+            update_current_conversation(conv['id'], conv['history'], title, user_id)
         else:
-            _media_bot_ref.conversation_history.append({"role": "user", "content": f"🎨 生成图片: {prompt}"})
+            conv['history'].append({"role": "user", "content": f"🎨 生成图片: {prompt}"})
             err_msg = result.get('error', '图片生成失败')
-            _media_bot_ref.conversation_history.append({"role": "assistant", "content": f"抱歉，图片生成失败：{err_msg}"})
+            conv['history'].append({"role": "assistant", "content": f"抱歉，图片生成失败：{err_msg}"})
             title = prompt[:20] + '...' if len(prompt) > 20 else prompt
-            update_current_conversation(
-                _media_bot_ref.current_conversation_id,
-                _media_bot_ref.conversation_history,
-                title
-            )
+            update_current_conversation(conv['id'], conv['history'], title, user_id)
         return jsonify(result)
     except Exception as e:
-        _media_bot_ref.conversation_history.append({"role": "user", "content": f"🎨 生成图片: {prompt}"})
-        _media_bot_ref.conversation_history.append({"role": "assistant", "content": f"图片生成出错：{e}"})
+        conv['history'].append({"role": "user", "content": f"🎨 生成图片: {prompt}"})
+        conv['history'].append({"role": "assistant", "content": f"图片生成出错：{e}"})
         title = prompt[:20] + '...' if len(prompt) > 20 else prompt
-        update_current_conversation(
-            _media_bot_ref.current_conversation_id,
-            _media_bot_ref.conversation_history,
-            title
-        )
+        update_current_conversation(conv['id'], conv['history'], title, user_id)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -173,7 +173,8 @@ def analyze_file():
     if not _files_bot_ref:
         return jsonify({'success': False, 'error': 'Bot not initialized'}), 400
 
-    _ensure_conversation_for(_files_bot_ref)
+    user_id = _get_user_id()
+    conv = _ensure_conversation(user_id)
 
     if 'file' not in request.files:
         return jsonify({'success': False, 'error': '未上传文件'}), 400
@@ -208,16 +209,12 @@ def analyze_file():
         result = _files_bot_ref.analyze_file(filename, content)
 
         user_msg = f"📄 {filename}"
-        _files_bot_ref.conversation_history.append({"role": "user", "content": user_msg})
-        _files_bot_ref.conversation_history.append({"role": "assistant", "content": result})
-        _files_bot_ref.conversation_history = trim_history(_files_bot_ref.conversation_history)
+        conv['history'].append({"role": "user", "content": user_msg})
+        conv['history'].append({"role": "assistant", "content": result})
+        conv['history'] = trim_history(conv['history'])
 
         title = filename[:20] + '...' if len(filename) > 20 else filename
-        update_current_conversation(
-            _files_bot_ref.current_conversation_id,
-            _files_bot_ref.conversation_history,
-            title
-        )
+        update_current_conversation(conv['id'], conv['history'], title, user_id)
 
         return jsonify({'success': True, 'result': result, 'filename': filename})
     except Exception as e:
@@ -236,8 +233,14 @@ def face_info():
 
 @media_bp.route('/api/face_recognize', methods=['POST'])
 def face_recognize():
+    if not _media_bot_ref:
+        return jsonify({'success': False, 'error': 'Bot not initialized'}), 400
+
     if 'image' not in request.files:
         return jsonify({'success': False, 'error': '未上传图片'}), 400
+
+    user_id = _get_user_id()
+    conv = _ensure_conversation(user_id)
 
     file = request.files['image']
     raw = file.read()
@@ -245,4 +248,38 @@ def face_recognize():
         return jsonify({'success': False, 'error': '图片内容为空'}), 400
 
     result = recognize_image_bytes(raw)
+
+    try:
+        image_base64 = request.form.get('image_base64', '')
+        if image_base64:
+            user_msg = f"<div style=\"margin:4px 0;\">🤖 人脸识别: {file.filename or '上传的图片'}</div><img src=\"{image_base64}\" style=\"max-width:200px;border-radius:8px;margin-top:6px;border:1px solid #eee;\">"
+        else:
+            user_msg = f"[人脸识别] {file.filename or '上传的图片'}"
+        conv['history'].append({"role": "user", "content": user_msg})
+
+        if result.get('success') and result.get('faces_found', 0) > 0:
+            names = [r.get('name', 'Unknown') for r in result.get('results', [])]
+            confs = [r.get('confidence', 0) for r in result.get('results', [])]
+            summary_parts = []
+            for r in result.get('results', []):
+                label = r.get('name', 'Unknown')
+                conf = r.get('confidence', 0) * 100
+                summary_parts.append(f"{label} ({conf:.1f}%)")
+            assistant_msg = f"人脸识别完成：检测到 {result['faces_found']} 张人脸 → {', '.join(summary_parts)}"
+            if result.get('annotated_image'):
+                assistant_msg += f"\n\n<img src=\"{result['annotated_image']}\" style=\"max-width:300px;border-radius:8px;border:1px solid #eee;\">"
+        elif result.get('faces_found', 0) == 0:
+            assistant_msg = "人脸识别完成：未检测到人脸"
+            if image_base64:
+                assistant_msg += f"\n\n<img src=\"{image_base64}\" style=\"max-width:300px;border-radius:8px;border:1px solid #eee;\">"
+        else:
+            assistant_msg = f"人脸识别失败：{result.get('error', '未知错误')}"
+
+        conv['history'].append({"role": "assistant", "content": assistant_msg})
+        conv['history'] = trim_history(conv['history'])
+
+        update_current_conversation(conv['id'], conv['history'], '人脸识别', user_id)
+    except Exception as e:
+        print(f"[face_recognize] save error: {e}")
+
     return jsonify(result)

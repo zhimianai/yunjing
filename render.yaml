@@ -4,7 +4,7 @@
     env: python
     region: singapore
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: grep -v "^tensorflow\|^protobuf" requirements.txt > /tmp/req.txt && pip install -r /tmp/req.txt
     startCommand: gunicorn wsgi:app --bind 0.0.0.0 $PORT --timeout 120 --preload --workers 1 --max-requests 50
     healthCheckPath: /
     envVars:

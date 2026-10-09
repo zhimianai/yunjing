@@ -39,12 +39,12 @@ class WebSearcher:
                     results.append(f"标题: {title}\n链接: {link}\n摘要: {snippet}\n")
 
             if not results:
-                return "未找到相关搜索结果"
+                return ""
 
             return "\n".join(results)
 
         except Exception as e:
-            return f"搜索失败: {str(e)}"
+            return ""
 
     def search_with_bing(self, query: str, api_key: str = None, max_results: int = 5) -> str:
         if not api_key:
@@ -74,9 +74,9 @@ class WebSearcher:
                 results.append(f"标题: {title}\n链接: {url_link}\n摘要: {snippet}\n")
 
             if not results:
-                return "未找到相关搜索结果"
+                return ""
 
             return "\n".join(results)
 
         except Exception as e:
-            return f"Bing搜索失败: {str(e)}"
+            return ""

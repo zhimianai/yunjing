@@ -1,0 +1,92 @@
+[
+  {
+    "id": "9feefc98-dda6-4b8b-ac81-44c772844d96",
+    "title": "帮我生成一张鞠婧祎的写真图",
+    "timestamp": "2026-10-09T23:00:27.363063",
+    "messages": [
+      {
+        "role": "user",
+        "content": "🎨 生成图片: 帮我生成一张鞠婧祎的写真图"
+      },
+      {
+        "role": "assistant",
+        "content": "已为你生成图片：\n\n<img src=\"/static/images/img_20261009_230242_e193fe8c.png\" style=\"max-width:100%;border-radius:8px;margin:8px 0;\">"
+      }
+    ]
+  },
+  {
+    "id": "6179383e-08ef-4b60-8502-7f0f3916b1aa",
+    "title": "帮我生成一张鞠婧祎的写真图",
+    "timestamp": "2026-10-09T22:53:57.181913",
+    "messages": [
+      {
+        "role": "user",
+        "content": "🎨 生成图片: 帮我生成一张鞠婧祎的写真图"
+      },
+      {
+        "role": "assistant",
+        "content": "抱歉，图片生成失败：图片生成失败"
+      }
+    ]
+  },
+  {
+    "id": "fc000ea3-3feb-47f0-ba99-1d6f59f6a923",
+    "title": "帮我生成一张鞠婧祎的写真图",
+    "timestamp": "2026-10-09T22:46:56.616764",
+    "messages": [
+      {
+        "role": "user",
+        "content": "🎨 生成图片: 帮我生成一张鞠婧祎的写真图"
+      },
+      {
+        "role": "assistant",
+        "content": "抱歉，图片生成失败：图片生成失败"
+      }
+    ]
+  },
+  {
+    "id": "2f3b4b16-d806-434d-a242-1dd03108a78c",
+    "title": "生成图片: 帮我生成一张鞠婧祎的写真图",
+    "timestamp": "2026-10-09T22:23:36.044319",
+    "messages": [
+      {
+        "role": "user",
+        "content": "🎨 生成图片: 生成图片: 帮我生成一张鞠婧祎的写真图"
+      },
+      {
+        "role": "assistant",
+        "content": "已为你生成图片：\n\n<img src=\"/static/images/img_20261009_222439_5ac98cf0.png\" style=\"max-width:100%;border-radius:8px;margin:8px 0;\">"
+      }
+    ]
+  },
+  {
+    "id": "1ad6d431-606d-4e40-82fd-989fa0b4141e",
+    "title": "帮我生成一张鞠婧祎现实写真图",
+    "timestamp": "2026-10-09T22:18:14.246499",
+    "messages": [
+      {
+        "role": "user",
+        "content": "🎨 生成图片: 帮我生成一张鞠婧祎现实写真图"
+      },
+      {
+        "role": "assistant",
+        "content": "抱歉，图片生成失败：图片生成失败，所有可用服务均不可用：\n  - qwen: HTTP 400 [InvalidParameter]: url error, please check url！ For details, see: https://help.aliyun.com/zh/model-studio/error-code#error-url\n  - wenxin: HTTP 401: {\"error\":{\"code\":\"invalid_model\",\"message\":\"The model does not exist or you do not have access to it.\",\"type\":\"invalid_request_error\"},\"id\":\"as-mihw9k"
+      }
+    ]
+  },
+  {
+    "id": "01eabede-5bc9-4c18-accc-cf4f40ccf3e3",
+    "title": "生成一张现实写真图",
+    "timestamp": "2026-10-09T22:14:38.993763",
+    "messages": [
+      {
+        "role": "user",
+        "content": "🎨 生成图片: 生成一张现实写真图"
+      },
+      {
+        "role": "assistant",
+        "content": "抱歉，图片生成失败：图片生成失败，所有可用服务均不可用：\n  - qwen: HTTP 400 [InvalidParameter]: Model not exist.\n  - wenxin: HTTP 401: {\"error\":{\"code\":\"invalid_model\",\"message\":\"The model does not exist or you do not have access to it.\",\"type\":\"invalid_request_error\"},\"id\":\"as-c4hp6e"
+      }
+    ]
+  }
+]

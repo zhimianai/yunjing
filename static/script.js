@@ -1,4 +1,337 @@
-﻿const API_BASE = '/api';
+const API_BASE = '/api';
+
+if (!localStorage.getItem('deviceId')) {
+    localStorage.setItem('deviceId', 'g_' + Math.random().toString(36).slice(2) + Date.now().toString(36));
+}
+const _deviceId = localStorage.getItem('deviceId');
+
+const _origFetch = window.fetch;
+window.fetch = function(url, options = {}) {
+    options = options || {};
+    if (!options.headers) options.headers = {};
+    const token = localStorage.getItem('authToken');
+    if (token) {
+        if (options.headers instanceof Headers) {
+            options.headers.set('Authorization', 'Bearer ' + token);
+        } else if (typeof options.headers === 'object') {
+            options.headers = Object.assign({}, options.headers, {'Authorization': 'Bearer ' + token});
+        }
+    }
+    if (_deviceId) {
+        if (options.headers instanceof Headers) {
+            options.headers.set('X-Device-ID', _deviceId);
+        } else if (typeof options.headers === 'object') {
+            options.headers = Object.assign({}, options.headers, {'X-Device-ID': _deviceId});
+        }
+    }
+    return _origFetch(url, options);
+};
+
+function getAuthToken() { return localStorage.getItem('authToken'); }
+function getAuthUser() {
+    try { return JSON.parse(localStorage.getItem('authUser') || 'null'); } catch(e) { return null; }
+}
+function setAuth(token, user) {
+    localStorage.setItem('authToken', token);
+    localStorage.setItem('authUser', JSON.stringify(user));
+    updateAuthUI();
+}
+function clearAuth() {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('authUser');
+    updateAuthUI();
+}
+
+﻿﻿function updateAuthUI() {
+    const user = getAuthUser();
+    const loginBtn = document.getElementById('authLoginBtn');
+    const userInfo = document.getElementById('authUserInfo');
+    if (!loginBtn) return;
+    if (user) {
+        loginBtn.style.display = 'none';
+        if (userInfo) userInfo.style.display = 'inline-flex';
+        const nameEl = document.getElementById('authUserName');
+        if (nameEl) nameEl.textContent = user.nickname || user.identifier || '用户';
+        const actionBar = document.getElementById('authUserActions');
+        if (actionBar) {
+            actionBar.style.display = 'inline-flex';
+            actionBar.innerHTML = `
+                <span onclick="showMyApiKeys()" style="cursor:pointer;color:#7c3aed;font-size:13px;margin-left:12px;padding:4px 10px;border-radius:6px;">🔑 我的API密钥</span>
+                <span onclick="showChangePasswordModal()" style="cursor:pointer;color:#6b7280;font-size:13px;margin-left:8px;padding:4px 10px;border-radius:6px;">🔐 修改密码</span>
+                ${user.is_admin ? '<a href="/admin" target="_blank" style="color:#7c3aed;font-size:13px;margin-left:8px;padding:4px 10px;border-radius:6px;text-decoration:none;">🛡️ 管理后台</a>' : ''}
+            `;
+        }
+    } else {
+        loginBtn.style.display = 'inline-flex';
+        if (userInfo) userInfo.style.display = 'none';
+        const actionBar = document.getElementById('authUserActions');
+        if (actionBar) actionBar.style.display = 'none';
+    }
+}
+
+function showAuthModal() {
+    let modal = document.getElementById('authModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'authModal';
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        modal.innerHTML = `
+            <div style="background:#fff;border-radius:16px;padding:32px;width:400px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+                <div style="font-size:20px;font-weight:700;color:#111827;margin-bottom:8px;text-align:center;">云镜账号</div>
+                <div style="font-size:13px;color:#6b7280;margin-bottom:24px;text-align:center;">支持手机号 / 邮箱 / 用户名注册</div>
+                <div style="display:flex;gap:8px;margin-bottom:24px;">
+                    <button id="tabLogin" style="flex:1;padding:12px;border:none;background:#2563eb;color:#fff;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">登录</button>
+                    <button id="tabRegister" style="flex:1;padding:12px;border:2px solid #e5e7eb;background:#fff;color:#374151;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">注册</button>
+                </div>
+                <div style="margin-bottom:16px;">
+                    <label style="display:block;font-size:13px;color:#6b7280;margin-bottom:6px;">账号</label>
+                    <input id="authIdentifier" type="text" placeholder="手机号 / 邮箱 / 用户名" style="width:100%;padding:12px;border:1px solid #e5e7eb;border-radius:8px;font-size:15px;box-sizing:border-box;">
+                </div>
+                <div id="nicknameField" style="margin-bottom:16px;display:none;">
+                    <label style="display:block;font-size:13px;color:#6b7280;margin-bottom:6px;">昵称（可选）</label>
+                    <input id="authNickname" type="text" placeholder="给自己起个名字" style="width:100%;padding:12px;border:1px solid #e5e7eb;border-radius:8px;font-size:15px;box-sizing:border-box;">
+                </div>
+                <div id="codeField" style="margin-bottom:16px;display:none;">
+                    <label style="display:block;font-size:13px;color:#6b7280;margin-bottom:6px;">验证码</label>
+                    <div style="display:flex;gap:8px;">
+                        <input id="authCode" type="text" placeholder="6位数字验证码" maxlength="6" style="flex:1;padding:12px;border:1px solid #e5e7eb;border-radius:8px;font-size:15px;box-sizing:border-box;letter-spacing:8px;text-align:center;">
+                        <button id="sendCodeBtn" style="padding:12px 16px;border:1px solid #2563eb;background:#fff;color:#2563eb;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;white-space:nowrap;">获取验证码</button>
+                    </div>
+                    <div id="codeHint" style="font-size:12px;color:#9ca3af;margin-top:6px;"></div>
+                </div>
+                <div style="margin-bottom:16px;">
+                    <label style="display:block;font-size:13px;color:#6b7280;margin-bottom:6px;">密码</label>
+                    <input id="authPassword" type="password" placeholder="至少6个字符" style="width:100%;padding:12px;border:1px solid #e5e7eb;border-radius:8px;font-size:15px;box-sizing:border-box;">
+                </div>
+                <div id="authError" style="color:#dc2626;font-size:13px;margin-bottom:12px;display:none;"></div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <span id="forgotLink" onclick="showResetModal()" style="color:#2563eb;font-size:13px;cursor:pointer;display:none;">忘记密码？</span>
+                    <span></span>
+                </div>
+                <button id="authSubmit" style="width:100%;padding:14px;border:none;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;">登录</button>
+                <button id="authClose" style="width:100%;padding:10px;border:none;background:transparent;color:#9ca3af;font-size:13px;cursor:pointer;margin-top:8px;">关闭</button>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        let mode = 'login';
+        let codeCooldown = 0;
+        let codeTimer = null;
+        const tabLogin = modal.querySelector('#tabLogin');
+        const tabRegister = modal.querySelector('#tabRegister');
+        const submitBtn = modal.querySelector('#authSubmit');
+        const errorEl = modal.querySelector('#authError');
+        const nicknameField = modal.querySelector('#nicknameField');
+        const codeField = modal.querySelector('#codeField');
+        const codeHint = modal.querySelector('#codeHint');
+        const identifierInput = modal.querySelector('#authIdentifier');
+        const codeInput = modal.querySelector('#authCode');
+        const sendCodeBtn = modal.querySelector('#sendCodeBtn');
+
+        function detectAuthType(val) {
+            val = val.trim();
+            if (/^1[3-9]\d{9}$/.test(val)) return 'phone';
+            if (/^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(val)) return 'email';
+            return 'username';
+        }
+
+        function updateCodeField() {
+            const val = identifierInput.value.trim();
+            const authType = detectAuthType(val);
+            if (authType === 'phone' || authType === 'email') {
+                codeField.style.display = 'block';
+            } else {
+                codeField.style.display = 'none';
+                codeInput.value = '';
+            }
+        }
+
+        function setCooldown(seconds) {
+            codeCooldown = seconds;
+            if (codeTimer) clearInterval(codeTimer);
+            if (seconds > 0) {
+                sendCodeBtn.disabled = true;
+                sendCodeBtn.style.opacity = '0.6';
+                sendCodeBtn.textContent = `${seconds}s 后重试`;
+                codeTimer = setInterval(() => {
+                    codeCooldown--;
+                    if (codeCooldown <= 0) {
+                        clearInterval(codeTimer);
+                        sendCodeBtn.disabled = false;
+                        sendCodeBtn.style.opacity = '1';
+                        sendCodeBtn.textContent = '获取验证码';
+                    } else {
+                        sendCodeBtn.textContent = `${codeCooldown}s 后重试`;
+                    }
+                }, 1000);
+            } else {
+                sendCodeBtn.disabled = false;
+                sendCodeBtn.style.opacity = '1';
+                sendCodeBtn.textContent = '获取验证码';
+            }
+        }
+
+        async function handleSendCode() {
+            const identifier = identifierInput.value.trim();
+            const authType = detectAuthType(identifier);
+
+            if (!identifier) {
+                errorEl.textContent = '请先输入手机号或邮箱';
+                errorEl.style.display = 'block';
+                return;
+            }
+            if (authType === 'username') {
+                errorEl.textContent = '请输入有效的手机号或邮箱';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            errorEl.style.display = 'none';
+            sendCodeBtn.disabled = true;
+            sendCodeBtn.style.opacity = '0.6';
+            const originalText = sendCodeBtn.textContent;
+            sendCodeBtn.textContent = '发送中...';
+
+            try {
+                const purpose = mode === 'login' ? 'login' : 'register';
+                const resp = await _origFetch('/api/send_code', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({target: identifier, purpose})
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    codeHint.textContent = `验证码已发送到 ${data.masked_target}，5分钟内有效`;
+                    codeHint.style.color = '#10b981';
+                    setCooldown(60);
+                    if (data.dev_code) {
+                        console.log('[开发模式] 验证码:', data.dev_code);
+                        codeHint.textContent += `（开发模式：${data.dev_code}）`;
+                    }
+                } else {
+                    errorEl.textContent = data.error || '发送失败';
+                    errorEl.style.display = 'block';
+                    setCooldown(data.cooldown || 0);
+                    if (!data.cooldown) {
+                        sendCodeBtn.disabled = false;
+                        sendCodeBtn.style.opacity = '1';
+                        sendCodeBtn.textContent = originalText;
+                    }
+                }
+            } catch(e) {
+                errorEl.textContent = '网络错误，请重试';
+                errorEl.style.display = 'block';
+                sendCodeBtn.disabled = false;
+                sendCodeBtn.style.opacity = '1';
+                sendCodeBtn.textContent = originalText;
+            }
+        }
+
+        function setMode(m) {
+            mode = m;
+            const forgotLink = modal.querySelector('#forgotLink');
+            if (m === 'login') {
+                tabLogin.style.background = '#2563eb'; tabLogin.style.color = '#fff'; tabLogin.style.border = 'none';
+                tabRegister.style.background = '#fff'; tabRegister.style.color = '#374151'; tabRegister.style.border = '2px solid #e5e7eb';
+                submitBtn.textContent = '登录';
+                nicknameField.style.display = 'none';
+                if (forgotLink) forgotLink.style.display = 'inline';
+            } else {
+                tabRegister.style.background = '#7c3aed'; tabRegister.style.color = '#fff'; tabRegister.style.border = 'none';
+                tabLogin.style.background = '#fff'; tabLogin.style.color = '#374151'; tabLogin.style.border = '2px solid #e5e7eb';
+                submitBtn.textContent = '注册';
+                nicknameField.style.display = 'block';
+                if (forgotLink) forgotLink.style.display = 'none';
+            }
+            updateCodeField();
+            errorEl.style.display = 'none';
+            codeHint.textContent = '';
+        }
+        tabLogin.onclick = () => setMode('login');
+        tabRegister.onclick = () => setMode('register');
+        identifierInput.addEventListener('input', updateCodeField);
+        sendCodeBtn.onclick = handleSendCode;
+
+        modal.querySelector('#authClose').onclick = () => modal.remove();
+        modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+        submitBtn.onclick = async () => {
+            const identifier = modal.querySelector('#authIdentifier').value.trim();
+            const password = modal.querySelector('#authPassword').value;
+            const nickname = modal.querySelector('#authNickname').value.trim();
+            const code = modal.querySelector('#authCode').value.trim();
+            const authType = detectAuthType(identifier);
+
+            if (!identifier || !password) {
+                errorEl.textContent = '请填写账号和密码';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            if (authType === 'phone' || authType === 'email') {
+                if (!code) {
+                    errorEl.textContent = '请输入验证码';
+                    errorEl.style.display = 'block';
+                    return;
+                }
+            }
+
+            try {
+                const url = mode === 'login' ? '/api/login' : '/api/register';
+                const bodyObj = {identifier, password};
+                if (authType === 'phone' || authType === 'email') bodyObj.code = code;
+                if (mode === 'register' && nickname) bodyObj.nickname = nickname;
+
+                const resp = await _origFetch(url, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(bodyObj)
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    const userInfo = {
+                        user_id: data.user_id,
+                        identifier: identifier,
+                        nickname: data.nickname || identifier,
+                        auth_type: data.auth_type
+                    };
+                    setAuth(data.token, userInfo);
+                    modal.remove();
+                    showToast(mode === 'login' ? '登录成功！' : '注册成功！欢迎 ' + (data.nickname || ''));
+                    location.reload();
+                } else {
+                    errorEl.textContent = data.error || '操作失败';
+                    errorEl.style.display = 'block';
+                    if (data.need_code) {
+                        updateCodeField();
+                    }
+                }
+            } catch(e) {
+                errorEl.textContent = '网络错误，请重试';
+                errorEl.style.display = 'block';
+            }
+        };
+    } else {
+        modal.remove();
+        showAuthModal();
+    }
+}
+
+
+function logout() {
+    clearAuth();
+    showToast('已退出登录');
+    location.reload();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    updateAuthUI();
+    const loginBtn = document.getElementById('authLoginBtn');
+    if (loginBtn) loginBtn.onclick = showAuthModal;
+    const logoutBtn = document.getElementById('authLogoutBtn');
+    if (logoutBtn) logoutBtn.onclick = logout;
+});
+
 const IMAGE_EXT = ['png','jpg','jpeg','gif','webp','bmp','svg','ico','tiff','heic'];
 let _allProviderKeys = {};
 
@@ -25,6 +358,10 @@ const enableSearchConfig = document.getElementById('enableSearchConfig');
 const attachBtn = document.getElementById('attachBtn');
 const fileAttachInput = document.getElementById('fileAttachInput');
 const genImgBtn = document.getElementById('genImgBtn');
+const refImgBtn = document.getElementById('refImgBtn');
+const refImgInput = document.getElementById('refImgInput');
+let pendingRefImage = null;
+let pendingRefImageName = null;
 const faceRecBtn = document.getElementById('faceRecBtn');
 const faceRecInput = document.getElementById('faceRecInput');
 const inputWrapper = document.getElementById('inputWrapper');
@@ -403,9 +740,6 @@ function setupEventListeners() {
     stopBtn.addEventListener('click', stopGeneration);
     providerSelect.addEventListener('change', () => {
         updateModelList(providerSelect.value);
-        if (typeof _allProviderKeys !== 'undefined') {
-            apiKeyInput.value = _allProviderKeys[providerSelect.value] || '';
-        }
     });
     
     updateModelList(providerSelect.value);
@@ -417,11 +751,34 @@ function setupEventListeners() {
         if (text) {
             doGenerateImage(text);
         } else {
-            const prompt = prompt('请输入图片描述（提示词）：\n\n例如：一只可爱的橘猫在阳光下睡觉');
-            if (prompt && prompt.trim()) {
-                doGenerateImage(prompt.trim());
+            const userPrompt = window.prompt('请输入图片描述（提示词）：\n\n例如：一只可爱的橘猫在阳光下睡觉');
+            if (userPrompt && userPrompt.trim()) {
+                doGenerateImage(userPrompt.trim());
             }
         }
+    });
+
+    refImgBtn.addEventListener('click', () => {
+        if (isLoading) return;
+        refImgInput.value = '';
+        refImgInput.click();
+    });
+    refImgInput.addEventListener('change', (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            pendingRefImage = ev.target.result;
+            pendingRefImageName = file.name;
+            const text = messageInput.value.trim();
+            const prompt = text || window.prompt('参考图已上传！请输入要生成的图片描述：\n\n例如：让这张参考图变成古风写真风格');
+            if (prompt && prompt.trim()) {
+                doGenerateImage(prompt.trim(), pendingRefImage);
+            }
+            pendingRefImage = null;
+            pendingRefImageName = null;
+        };
+        reader.readAsDataURL(file);
     });
     
     faceRecBtn.addEventListener('click', () => {
@@ -540,7 +897,7 @@ function renderAttachments() {
     attachments.forEach(att => {
         const card = document.createElement('div');
         card.className = 'attachment-card ' + (att.isImage ? 'image-card' : 'file-card');
-        card.innerHTML = '<button type="button" class="remove-attachment" title="移除">✕</button>';
+        card.innerHTML = '<button type="button" class="remove-attachment" title="移除">?</button>';
         if (att.isImage) {
             const img = document.createElement('img');
             img.src = att.preview;
@@ -579,17 +936,33 @@ function updateSendButton() {
 
 async function loadConfig() {
     try {
+        let userCfg = null;
+        try { userCfg = JSON.parse(localStorage.getItem('userConfig') || 'null'); } catch(e) {}
+
         const response = await fetch(`${API_BASE}/config`);
         const data = await response.json();
         if (data.success) {
             const c = data.config;
-            _allProviderKeys = c.api_keys || {};
-            providerSelect.value = c.provider;
-            updateModelList(c.provider, c.model);
-            apiKeyInput.value = c.api_key;
-            enableSearchConfig.checked = c.enable_search;
-            searchToggle.checked = c.enable_search;
-            updateConfigStatus(!!c.api_key);
+
+            let provider, model, api_key, enable_search;
+            if (userCfg) {
+                provider = userCfg.provider || c.provider;
+                model = userCfg.model || c.model;
+                api_key = userCfg.api_key || '';
+                enable_search = userCfg.enable_search !== undefined ? userCfg.enable_search : c.enable_search;
+            } else {
+                provider = c.provider;
+                model = c.model;
+                api_key = '';
+                enable_search = c.enable_search;
+            }
+
+            providerSelect.value = provider;
+            updateModelList(provider, model);
+            apiKeyInput.value = api_key;
+            enableSearchConfig.checked = enable_search;
+            searchToggle.checked = enable_search;
+            updateConfigStatus(true);
         }
     } catch (error) {
         console.error('加载配置失败:', error);
@@ -603,21 +976,32 @@ async function saveConfig() {
         api_key: apiKeyInput.value.trim(),
         enable_search: enableSearchConfig.checked
     };
-    if (!config.api_key) { alert('请输入API Key'); return; }
     try {
-        const response = await fetch(`${API_BASE}/config`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(config)
-        });
-        const data = await response.json();
-        if (data.success) {
-            configModal.classList.remove('active');
+        localStorage.setItem('userConfig', JSON.stringify({
+            provider: config.provider,
+            model: config.model,
+            api_key: config.api_key,
+            enable_search: config.enable_search
+        }));
+
+        try {
+            await fetch(`${API_BASE}/config`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    enable_search: config.enable_search
+                })
+            });
+        } catch(e) {}
+
+        configModal.classList.remove('active');
+        searchToggle.checked = config.enable_search;
+        if (config.api_key) {
             updateConfigStatus(true);
-            searchToggle.checked = config.enable_search;
-            alert('配置已保存');
+            alert('配置已保存（使用你自己的 API Key）');
         } else {
-            alert('保存失败: ' + data.error);
+            updateConfigStatus(true);
+            alert('配置已保存（使用默认服务）');
         }
     } catch (error) {
         alert('保存失败');
@@ -668,9 +1052,9 @@ function updateModelList(provider, presetModel) {
     modelSelect.innerHTML = '';
     
     const groups = [
-        {label: '💬 对话模型', items: info.chat},
-        {label: '👁️ 视觉模型', items: info.vision},
-        {label: '🎨 生图模型', items: info.image},
+        {label: '?? 对话模型', items: info.chat},
+        {label: '??? 视觉模型', items: info.vision},
+        {label: '?? 生图模型', items: info.image},
     ];
     
     let firstOption = null;
@@ -761,10 +1145,19 @@ async function doChat(question) {
     currentAbortController = new AbortController();
     
     try {
+        let uc = null;
+        try { uc = JSON.parse(localStorage.getItem('userConfig') || 'null'); } catch(e) {}
+        const reqBody = {question: q, force_search: forceSearch};
+        if (uc && uc.api_key) {
+            reqBody.user_api_key = uc.api_key;
+            reqBody.user_provider = uc.provider;
+            reqBody.user_model = uc.model;
+        }
+
         const response = await fetch(`${API_BASE}/chat`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({question: q, force_search: forceSearch}),
+            body: JSON.stringify(reqBody),
             signal: currentAbortController.signal
         });
         const data = await response.json();
@@ -783,7 +1176,7 @@ async function doChat(question) {
 }
 
 async function doRecognizeImage(att, prompt) {
-    addMessage('user', `🖼️ ${att.name}${prompt ? '\n' + prompt : ''}
+    addMessage('user', `??? ${att.name}${prompt ? '\n' + prompt : ''}
         <img src="${att.preview}" style="max-width:200px;border-radius:8px;margin-top:8px;border:1px solid rgba(0,0,0,0.1);">`
     );
     const loadingId = addMessage('assistant', '<span class="loading">正在识别图片...</span>', true);
@@ -815,7 +1208,7 @@ async function doRecognizeImage(att, prompt) {
 }
 
 async function doAnalyzeFile(att, extraPrompt) {
-    addMessage('user', `📄 ${att.name}${extraPrompt ? '\n' + extraPrompt : ''}`);
+    addMessage('user', `?? ${att.name}${extraPrompt ? '\n' + extraPrompt : ''}`);
     const loadingId = addMessage('assistant', '<span class="loading">正在分析文件...</span>', true);
     
     currentAbortController = new AbortController();
@@ -850,8 +1243,9 @@ async function doAnalyzeFile(att, extraPrompt) {
     }
 }
 
-async function doGenerateImage(prompt) {
-    addMessage('user', `🎨 生成图片: ${prompt}`);
+async function doGenerateImage(prompt, referenceImage = null) {
+    const refLabel = referenceImage ? ' (参考图模式)' : '';
+    addMessage('user', `🎨 生成图片${refLabel}: ${prompt}`);
     const loadingId = addMessage('assistant', '<span class="loading">🖼️ 正在生成图片，请稍候...</span>', true);
     isLoading = true;
     updateSendButton();
@@ -859,10 +1253,12 @@ async function doGenerateImage(prompt) {
     currentAbortController = new AbortController();
     
     try {
+        const bodyData = {prompt: prompt, size: '1024x1024'};
+        if (referenceImage) bodyData.reference_image = referenceImage;
         const response = await fetch(`${API_BASE}/generate_image`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({prompt: prompt, size: '1024x1024'}),
+            body: JSON.stringify(bodyData),
             signal: currentAbortController.signal
         });
         const data = await response.json();
@@ -905,7 +1301,7 @@ async function doFaceRecognition(file) {
         reader.readAsDataURL(file);
     });
 
-    addMessage('user', `<div style="margin:4px 0;">👤 人脸识别: ${file.name}</div><img src="${originalDataUrl}" style="max-width:200px;border-radius:8px;margin-top:6px;border:1px solid #eee;">`);
+    addMessage('user', `<div style="margin:4px 0;">?? 人脸识别: ${file.name}</div><img src="${originalDataUrl}" style="max-width:200px;border-radius:8px;margin-top:6px;border:1px solid #eee;">`);
     const loadingId = addMessage('assistant', '<span class="loading">正在识别人脸...</span>', true);
     isLoading = true;
     updateSendButton();
@@ -913,6 +1309,7 @@ async function doFaceRecognition(file) {
     try {
         const formData = new FormData();
         formData.append('image', file);
+        formData.append('image_base64', originalDataUrl);
         const response = await fetch(`${API_BASE}/face_recognize`, {
             method: 'POST',
             body: formData,
@@ -920,13 +1317,13 @@ async function doFaceRecognition(file) {
         const data = await response.json();
 
         if (!data.success) {
-            updateMessage(loadingId, '❌ 人脸识别失败: ' + (data.error || '未知错误'));
+            updateMessage(loadingId, '? 人脸识别失败: ' + (data.error || '未知错误'));
         } else if (data.faces_found === 0) {
             updateMessage(loadingId, `
-                <div style="margin:8px 0;">🤔 未检测到人脸，请上传包含清晰人脸的图片</div>
+                <div style="margin:8px 0;">?? 未检测到人脸，请上传包含清晰人脸的图片</div>
                 <div style="display:flex;gap:12px;margin-top:10px;align-items:flex-start;">
                     <div style="flex:1;">
-                        <div style="font-size:12px;color:#888;margin-bottom:4px;">📷 原始图片</div>
+                        <div style="font-size:12px;color:#888;margin-bottom:4px;">?? 原始图片</div>
                         <img src="${originalDataUrl}" style="max-width:100%;border-radius:8px;border:1px solid #eee;">
                     </div>
                 </div>
@@ -936,28 +1333,24 @@ async function doFaceRecognition(file) {
             let html = `<div style="margin:8px 0;"><strong>检测到 ${data.faces_found} 张人脸：</strong></div>`;
             html += `<div style="display:flex;gap:12px;margin-top:10px;align-items:flex-start;flex-wrap:wrap;">`;
             html += `<div style="flex:1;min-width:200px;">
-                <div style="font-size:12px;color:#888;margin-bottom:4px;">📷 原始图片</div>
+                <div style="font-size:12px;color:#888;margin-bottom:4px;">?? 原始图片</div>
                 <img src="${originalDataUrl}" style="max-width:100%;border-radius:8px;border:1px solid #eee;">
             </div>`;
             if (data.annotated_image) {
                 html += `<div style="flex:1;min-width:200px;">
-                    <div style="font-size:12px;color:#888;margin-bottom:4px;">🎯 识别标注</div>
+                    <div style="font-size:12px;color:#888;margin-bottom:4px;">?? 识别标注</div>
                     <img src="${data.annotated_image}" style="max-width:100%;border-radius:8px;border:1px solid #eee;">
                 </div>`;
             }
             html += `</div>`;
             results.forEach((r, i) => {
                 const isUnknown = r.name === 'Unknown';
-                const topProbs = Object.entries(r.all_probs || {})
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, 3);
                 html += `
                     <div style="margin:10px 0;padding:10px 14px;background:${isUnknown ? '#fff5f5' : '#f0f9ff'};border-radius:8px;border-left:3px solid ${isUnknown ? '#ef4444' : '#22c55e'};">
                         <div style="font-weight:600;color:${isUnknown ? '#dc2626' : '#16a34a'};">
-                            ${isUnknown ? '❓ 陌生人' : '✅ ' + r.name}
+                            ${isUnknown ? '? 陌生人' : '? ' + r.name}
                             <span style="float:right;color:#666;font-weight:400;">置信度 ${(r.confidence * 100).toFixed(1)}%</span>
                         </div>
-                        ${topProbs.length > 0 ? `<div style="margin-top:6px;font-size:12px;color:#888;">概率排名: ${topProbs.map(([n, p]) => `${n} ${(p * 100).toFixed(1)}%`).join(' · ')}</div>` : ''}
                     </div>
                 `;
             });
@@ -1655,4 +2048,198 @@ function openImageViewer(src, alt) {
     document.body.style.overflow = 'hidden';
 
     requestAnimationFrame(() => viewer.classList.add('show'));
+}
+function showChangePasswordModal() {
+    let modal = document.getElementById('changePwdModal');
+    if (modal) { modal.remove(); return; }
+    modal = document.createElement('div');
+    modal.id = 'changePwdModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:#fff;border-radius:16px;padding:32px;width:380px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <div style="font-size:18px;font-weight:700;color:#111827;margin-bottom:20px;text-align:center;">🔐 修改密码</div>
+            <input id="cpOldPwd" type="password" placeholder="当前密码" style="width:100%;padding:12px;border:1px solid #e5e7eb;border-radius:8px;font-size:15px;box-sizing:border-box;margin-bottom:12px;">
+            <input id="cpNewPwd" type="password" placeholder="新密码（至少6位）" style="width:100%;padding:12px;border:1px solid #e5e7eb;border-radius:8px;font-size:15px;box-sizing:border-box;margin-bottom:12px;">
+            <input id="cpNewPwd2" type="password" placeholder="再次输入新密码" style="width:100%;padding:12px;border:1px solid #e5e7eb;border-radius:8px;font-size:15px;box-sizing:border-box;margin-bottom:12px;">
+            <div id="cpError" style="color:#dc2626;font-size:13px;margin-bottom:12px;display:none;"></div>
+            <div id="cpSuccess" style="color:#16a34a;font-size:13px;margin-bottom:12px;display:none;"></div>
+            <button id="cpSubmit" style="width:100%;padding:14px;border:none;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;">确认修改</button>
+            <button onclick="document.getElementById('changePwdModal').remove()" style="width:100%;padding:10px;border:none;background:transparent;color:#9ca3af;font-size:13px;cursor:pointer;margin-top:8px;">取消</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    modal.querySelector('#cpSubmit').onclick = async () => {
+        const oldP = modal.querySelector('#cpOldPwd').value;
+        const newP = modal.querySelector('#cpNewPwd').value;
+        const newP2 = modal.querySelector('#cpNewPwd2').value;
+        const err = modal.querySelector('#cpError');
+        const suc = modal.querySelector('#cpSuccess');
+        err.style.display = 'none'; suc.style.display = 'none';
+        if (!newP || newP.length < 6) { err.textContent = '新密码至少6位'; err.style.display='block'; return; }
+        if (newP !== newP2) { err.textContent = '两次密码不一致'; err.style.display='block'; return; }
+        const resp = await fetch('/api/change_password', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({old_password: oldP, new_password: newP})
+        });
+        const data = await resp.json();
+        if (data.success) {
+            suc.textContent = '密码修改成功！'; suc.style.display = 'block';
+            setTimeout(() => modal.remove(), 1200);
+            showToast('密码修改成功');
+        } else {
+            err.textContent = data.error || '修改失败'; err.style.display = 'block';
+        }
+    };
+}
+
+async function showMyApiKeys() {
+    let modal = document.getElementById('myApiKeysModal');
+    if (modal) { modal.remove(); return; }
+    modal = document.createElement('div');
+    modal.id = 'myApiKeysModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:#fff;border-radius:16px;padding:32px;width:520px;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <div style="font-size:20px;font-weight:700;color:#111827;margin-bottom:8px;text-align:center;">🔑 我的 API 密钥</div>
+            <div style="font-size:13px;color:#6b7280;margin-bottom:20px;text-align:center;">用此 Key 调用云镜 AI 接口 /api/chat</div>
+            <div style="background:#f0fdf4;border:1px solid #bbf7d0;padding:12px;border-radius:8px;margin-bottom:16px;font-size:13px;color:#166534;">
+                <div style="font-weight:600;margin-bottom:6px;">📖 调用示例（Python）：</div>
+                <code style="display:block;white-space:pre-wrap;font-size:12px;background:#fff;padding:8px;border-radius:4px;">import requests
+resp = requests.post('${window.location.origin}/api/chat',
+    headers={'X-API-Key': '你的Key'},
+    json={'question': '你好'})
+print(resp.json())</code>
+            </div>
+            <div id="myKeysList" style="margin-bottom:16px;"></div>
+            <div style="display:flex;gap:8px;">
+                <input id="newKeyName" type="text" placeholder="密钥名称（如：我的APP）" style="flex:1;padding:10px;border:1px solid #e5e7eb;border-radius:8px;font-size:14px;box-sizing:border-box;">
+                <input id="newKeyLimit" type="number" value="100" min="1" max="10000" placeholder="每日额度" style="width:100px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;font-size:14px;box-sizing:border-box;">
+                <button id="createKeyBtn" style="padding:10px 16px;border:none;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">创建密钥</button>
+            </div>
+            <button onclick="document.getElementById('myApiKeysModal').remove()" style="width:100%;padding:10px;border:none;background:transparent;color:#9ca3af;font-size:13px;cursor:pointer;margin-top:8px;">关闭</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+    modal.querySelector('#createKeyBtn').onclick = async () => {
+        const name = modal.querySelector('#newKeyName').value.trim();
+        const limit = parseInt(modal.querySelector('#newKeyLimit').value) || 100;
+        const resp = await fetch('/api/apikeys', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({name, daily_limit: limit})
+        });
+        const data = await resp.json();
+        if (data.success) {
+            alert('密钥已创建！\n\n' + data.key + '\n\n⚠️ 请立即保存，此密钥只会显示一次！');
+            await loadMyKeys();
+        } else {
+            alert(data.error || '创建失败');
+        }
+    };
+
+    await loadMyKeys();
+
+    async function loadMyKeys() {
+        const listEl = modal.querySelector('#myKeysList');
+        const resp = await fetch('/api/apikeys');
+        const data = await resp.json();
+        if (!data.success || !data.keys.length) {
+            listEl.innerHTML = '<div style="color:#9ca3af;font-size:13px;text-align:center;padding:20px;">暂无密钥，点击下方创建 👇</div>';
+            return;
+        }
+        listEl.innerHTML = data.keys.map(k => {
+            const pct = Math.min(100, Math.round(k.daily_used / k.daily_limit * 100));
+            return `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+                <div style="flex:1;">
+                    <div style="font-weight:600;font-size:14px;color:#111827;">${k.name || '默认密钥'}</div>
+                    <div style="font-family:monospace;font-size:12px;color:#6b7280;margin:4px 0;">${k.key_display}</div>
+                    <div style="font-size:12px;color:#9ca3af;">额度: ${k.daily_used}/${k.daily_limit} · 总调用: ${k.total_calls} · 状态: ${k.status === 'active' ? '✅ 活跃' : '🚫 已停用'}</div>
+                    <div style="background:#e5e7eb;border-radius:4px;height:6px;width:100%;margin-top:6px;">
+                        <div style="background:${pct > 80 ? '#ef4444' : '#10b981'};height:100%;border-radius:4px;width:${pct}%"></div>
+                    </div>
+                </div>
+                <button onclick="delMyKey(${k.id})" style="padding:6px 12px;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;font-size:12px;cursor:pointer;margin-left:8px;">删除</button>
+            </div>`;
+        }).join('');
+    }
+
+    window.delMyKey = async (id) => {
+        if (!confirm('确定删除此密钥？')) return;
+        await fetch('/api/apikeys/' + id, {method:'DELETE'});
+        await loadMyKeys();
+    };
+}
+
+function showResetModal() {
+    let modal = document.getElementById('resetPwdModal');
+    if (modal) { modal.remove(); return; }
+    modal = document.createElement('div');
+    modal.id = 'resetPwdModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:#fff;border-radius:16px;padding:32px;width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <div style="font-size:18px;font-weight:700;color:#111827;margin-bottom:20px;text-align:center;">🔑 找回密码</div>
+            <div id="resetStep1">
+                <div style="font-size:13px;color:#6b7280;margin-bottom:8px;">请输入注册时使用的手机号或邮箱</div>
+                <input id="resetIdentifier" type="text" placeholder="手机号 / 邮箱" style="width:100%;padding:12px;border:1px solid #e5e7eb;border-radius:8px;font-size:15px;box-sizing:border-box;margin-bottom:12px;">
+                <div id="resetError1" style="color:#dc2626;font-size:13px;margin-bottom:12px;display:none;"></div>
+                <button id="resetBtn1" style="width:100%;padding:14px;border:none;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;">生成重置链接</button>
+            </div>
+            <div id="resetStep2" style="display:none;">
+                <div style="font-size:13px;color:#6b7280;margin-bottom:8px;">演示模式 - 请使用下方重置链接</div>
+                <div id="resetInfo" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:12px;margin-bottom:12px;font-size:13px;color:#0369a1;"></div>
+                <input id="resetToken" type="text" placeholder="重置token" style="width:100%;padding:12px;border:1px solid #e5e7eb;border-radius:8px;font-size:15px;box-sizing:border-box;margin-bottom:12px;">
+                <input id="resetNewPwd" type="password" placeholder="新密码（至少6位）" style="width:100%;padding:12px;border:1px solid #e5e7eb;border-radius:8px;font-size:15px;box-sizing:border-box;margin-bottom:12px;">
+                <div id="resetError2" style="color:#dc2626;font-size:13px;margin-bottom:12px;display:none;"></div>
+                <button id="resetBtn2" style="width:100%;padding:14px;border:none;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;">重置密码</button>
+            </div>
+            <button onclick="document.getElementById('resetPwdModal').remove()" style="width:100%;padding:10px;border:none;background:transparent;color:#9ca3af;font-size:13px;cursor:pointer;margin-top:8px;">取消</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    modal.querySelector('#resetBtn1').onclick = async () => {
+        const identifier = modal.querySelector('#resetIdentifier').value.trim();
+        const err = modal.querySelector('#resetError1');
+        err.style.display = 'none';
+        const resp = await fetch('/api/reset_request', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({identifier})
+        });
+        const data = await resp.json();
+        if (data.success) {
+            modal.querySelector('#resetInfo').innerHTML = `
+                <div>📱/📧 已发送到 <strong>${data.masked_identifier}</strong></div>
+                <div style="margin-top:8px;font-family:monospace;font-size:12px;word-break:break-all;">Token: ${data.reset_token}</div>
+                <div style="margin-top:6px;font-size:11px;color:#0284c7;">1小时内有效</div>
+            `;
+            modal.querySelector('#resetToken').value = data.reset_token;
+            modal.querySelector('#resetStep1').style.display = 'none';
+            modal.querySelector('#resetStep2').style.display = 'block';
+        } else {
+            err.textContent = data.error || '请求失败'; err.style.display = 'block';
+        }
+    };
+    modal.querySelector('#resetBtn2').onclick = async () => {
+        const token = modal.querySelector('#resetToken').value.trim();
+        const newPwd = modal.querySelector('#resetNewPwd').value;
+        const err = modal.querySelector('#resetError2');
+        err.style.display = 'none';
+        if (!newPwd || newPwd.length < 6) { err.textContent = '新密码至少6位'; err.style.display='block'; return; }
+        const resp = await fetch('/api/reset_password', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({reset_token: token, new_password: newPwd})
+        });
+        const data = await resp.json();
+        if (data.success) {
+            showToast('密码重置成功！请重新登录');
+            modal.remove();
+            logout();
+            showAuthModal();
+        } else {
+            err.textContent = data.error || '重置失败'; err.style.display = 'block';
+        }
+    };
 }

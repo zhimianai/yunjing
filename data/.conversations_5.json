@@ -1,0 +1,23 @@
+[
+  {
+    "id": "619c0366-e8b9-4a6d-bc42-867fa9cbed56",
+    "title": "hi",
+    "timestamp": "2026-10-09T18:14:13.041704",
+    "messages": []
+  },
+  {
+    "id": "6cb6121b-86fe-41d8-9379-ecd2c4a38da0",
+    "title": "你好",
+    "timestamp": "2026-10-09T18:11:55.641914",
+    "messages": [
+      {
+        "role": "user",
+        "content": "你好"
+      },
+      {
+        "role": "assistant",
+        "content": "你好！很高兴见到你，有什么我可以帮忙的吗？"
+      }
+    ]
+  }
+]

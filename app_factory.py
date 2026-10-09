@@ -1,9 +1,4 @@
-﻿"""
-AI智能问答小程序
-支持多种AI服务（DeepSeek、OpenAI、通义千问、百度文心助手等）
-"""
-
-import os
+﻿import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -16,10 +11,41 @@ from flask import Flask, render_template
 
 from config import API_KEYS, PROVIDER, MODEL, ENABLE_SEARCH
 from core.bot import AIChatBot
-from routes.chat import chat_bp, set_bot as set_chat_bot
-from routes.config_routes import config_bp, set_bot as set_config_bot
-from routes.media import media_bp, files_bp, set_bot as set_media_bot
-from routes.conversations import conversations_bp, set_bot as set_conv_bot
+
+try:
+    from routes.chat import chat_bp, set_bot as set_chat_bot
+except Exception as e:
+    print(f"[app_factory] chat import failed: {e}")
+    chat_bp = None
+    set_chat_bot = None
+
+try:
+    from routes.config_routes import config_bp, set_bot as set_config_bot
+except Exception as e:
+    print(f"[app_factory] config import failed: {e}")
+    config_bp = None
+    set_config_bot = None
+
+try:
+    from routes.media import media_bp, files_bp, set_bot as set_media_bot
+except Exception as e:
+    print(f"[app_factory] media import failed: {e}")
+    media_bp = None
+    files_bp = None
+    set_media_bot = None
+
+try:
+    from routes.conversations import conversations_bp, set_bot as set_conv_bot
+except Exception as e:
+    print(f"[app_factory] conversations import failed: {e}")
+    conversations_bp = None
+    set_conv_bot = None
+
+try:
+    from routes.auth import auth_bp
+except Exception as e:
+    print(f"[app_factory] auth import failed: {e}")
+    auth_bp = None
 
 
 def create_app() -> Flask:
@@ -34,11 +60,30 @@ def create_app() -> Flask:
     def favicon():
         return '', 204
 
-    app.register_blueprint(chat_bp)
-    app.register_blueprint(config_bp)
-    app.register_blueprint(media_bp)
-    app.register_blueprint(files_bp)
-    app.register_blueprint(conversations_bp)
+    @app.route('/<path:filename>')
+    def root_static(filename):
+        root_dir = os.path.dirname(os.path.abspath(__file__))
+        fp = os.path.join(root_dir, filename)
+        if os.path.isfile(fp):
+            from flask import send_file
+            return send_file(fp)
+        return '', 404
+
+    if chat_bp:
+        app.register_blueprint(chat_bp)
+    if config_bp:
+        app.register_blueprint(config_bp)
+    if media_bp:
+        app.register_blueprint(media_bp)
+    if files_bp:
+        app.register_blueprint(files_bp)
+    if conversations_bp:
+        app.register_blueprint(conversations_bp)
+    if auth_bp:
+        app.register_blueprint(auth_bp)
+        print("[app_factory] auth_bp registered OK")
+    else:
+        print("[app_factory] auth_bp NOT available - did you upload routes/auth.py?")
 
     return app
 
@@ -46,10 +91,14 @@ def create_app() -> Flask:
 def run_web_mode(bot, port=5000):
     app = create_app()
 
-    set_chat_bot(bot)
-    set_config_bot(bot)
-    set_media_bot(bot)
-    set_conv_bot(bot)
+    if set_chat_bot:
+        set_chat_bot(bot)
+    if set_config_bot:
+        set_config_bot(bot)
+    if set_media_bot:
+        set_media_bot(bot)
+    if set_conv_bot:
+        set_conv_bot(bot)
 
     def open_browser():
         time.sleep(1.5)

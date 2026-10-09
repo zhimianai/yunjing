@@ -148,28 +148,45 @@ class AIChatBot:
             result.append((name, key, default_model))
         return result
 
-    def ask(self, question: str, force_search: bool = False) -> str:
+    def ask(self, question: str, force_search: bool = False,
+            user_api_key: str = None, user_provider: str = None, user_model: str = None) -> str:
+        search_results = ""
         if (self.enable_search or force_search) and self.searcher:
             print("正在搜索网络...", end="")
             search_results = self.searcher.search(question, max_results=3)
             print("完成")
+
+        if search_results.strip():
             enhanced_question = f"""用户问题: {question}
 
 网络搜索结果:
 {search_results}
 
-请基于以上搜索结果回答用户的问题，如果搜索结果不足以回答，请基于你的知识库进行补充。"""
+请基于以上搜索结果回答用户的问题。"""
             self.conversation_history.append({"role": "user", "content": enhanced_question})
         else:
             self.conversation_history.append({"role": "user", "content": question})
 
         errors = []
         response = None
-        for provider_name, api_key, model in self._available_text_providers():
+
+        provider_chain = []
+        if user_api_key and user_provider:
+            um = user_model or PROVIDER_DEFAULT_MODELS.get(user_provider, "deepseek-chat")
+            provider_chain.append((user_provider, user_api_key, um))
+            is_user_mode = True
+        else:
+            is_user_mode = False
+            for pn, pk, pm in self._available_text_providers():
+                if not any(p == pn and k == pk for p, k, m in provider_chain):
+                    provider_chain.append((pn, pk, pm))
+
+        for provider_name, api_key, model in provider_chain:
             try:
                 self.conversation_history = trim_history(self.conversation_history)
                 response = self._call_provider_text(provider_name, api_key, model)
-                if provider_name != self.provider:
+                is_user_key = (user_api_key and api_key == user_api_key)
+                if not is_user_key and provider_name != self.provider:
                     print(f"[text fallback] {self.provider} 失败，已自动切换到 {provider_name}")
                 self.conversation_history.append({"role": "assistant", "content": response})
                 return response
@@ -559,15 +576,82 @@ class AIChatBot:
         except (KeyError, IndexError) as e:
             raise RuntimeError(f"返回格式异常: {result}") from e
 
-    def generate_image(self, prompt: str, size: str = "1024x1024") -> dict:
+    @staticmethod
+    def _enhance_image_prompt(prompt: str) -> str:
+        original = prompt.strip()
+        quality_tags = ", high quality, highly detailed, masterpiece, professional photography, 8k resolution, sharp focus, cinematic lighting"
+        style_map = [
+            (("写真", "照片", "摄影", "photo", "photograph"), "portrait photo, DSLR camera, natural lighting"),
+            (("动漫", "二次元", "anime", "cartoon"), "anime style, studio ghibli, vibrant colors"),
+            (("油画", "oil paint"), "oil painting, renaissance style, classical art"),
+            (("水墨", "国画", "中国风"), "chinese ink painting style, traditional art"),
+            (("赛博朋克", "cyberpunk"), "cyberpunk style, neon lights, futuristic city"),
+            (("仙侠", "玄幻"), "fantasy art, ethereal atmosphere, mystical"),
+            (("古装", "汉服"), "traditional chinese costume, period drama, elegant"),
+        ]
+        extra = ""
+        for keywords, tag in style_map:
+            if any(kw.lower() in original.lower() for kw in keywords):
+                extra = ", " + tag
+                break
+        celebrity_map = {
+            "鞠婧祎": "Japanese-Chinese actress, short black hair, round face, delicate features, idol singer, 90s style",
+            "迪丽热巴": "Uyghur ethnicity beauty, long wavy hair, deep eyes, tall figure, chinese actress",
+            "杨幂": "Chinese actress, long hair, sharp features, fashion icon",
+            "刘亦菲": "Chinese actress, elegant, fairy-like temperament, long black hair",
+            "赵丽颖": "Chinese actress, round face, cute, gentle temperament",
+            "易烊千玺": "Chinese actor and singer, handsome, youthful, talented",
+            "王一博": "Chinese actor and idol, cool style, motorcycle lover",
+            "肖战": "Chinese actor and singer, handsome, gentle features",
+        }
+        for name, desc in celebrity_map.items():
+            if name in original:
+                extra += f", {desc}, face reference"
+                break
+        return original + extra + quality_tags
+
+    def generate_image(self, prompt: str, size: str = "1024x1024",
+                      user_api_key: str = None, user_provider: str = None,
+                      reference_image: str = None, use_local_sd: bool = True) -> dict:
         ALLOWED_SIZES = {"256x256", "512x512", "1024x1024", "1792x1024", "1024x1792"}
         if size not in ALLOWED_SIZES:
             size = "1024x1024"
 
+        enhanced = self._enhance_image_prompt(prompt)
+        print(f"  [图片生成] 原始提示: {prompt}")
+        print(f"  [图片生成] 增强提示: {enhanced[:120]}...")
+        if reference_image:
+            print(f"  [图片生成] 参考图: 有 (len={len(reference_image)})")
+
+        if use_local_sd:
+            try:
+                from core import sd_generator
+                ok, msg = sd_generator.is_available()
+                if ok:
+                    print("  [图片生成] 尝试本地 Stable Diffusion...")
+                    lora_name = None
+                    for available_lora in sd_generator.list_available_loras():
+                        if any(n in prompt.lower() for n in [available_lora.lower()]):
+                            lora_name = available_lora
+                            break
+                    result = sd_generator.generate_local(
+                        prompt=enhanced,
+                        size=size,
+                        reference_image=reference_image,
+                        lora_name=lora_name,
+                    )
+                    if result.get("success"):
+                        result["provider_used"] = "local-sd"
+                        return result
+                    print(f"  [图片生成] 本地SD失败: {result.get('error', '')[:100]}")
+                else:
+                    print(f"  [图片生成] 本地SD不可用: {msg}")
+            except Exception as e:
+                print(f"  [图片生成] 本地SD模块加载失败: {e}")
+
         image_fallback = [
-            ("qwen",    "wanx2.1-t2i-turbo",        "qwen",    self._call_wanx),
-            ("wenxin",  "qwen-image",                    "wenxin",  self._call_wenxin_image),
             ("openai",  "dall-e-3",                  "openai",  self._call_dalle),
+            ("wenxin",  "qwen-image",                "wenxin",  self._call_wenxin_image),
         ]
         API_KEYS_MAP = {
             "openai": API_KEYS.get("openai", ""),
@@ -575,12 +659,18 @@ class AIChatBot:
             "wenxin": API_KEYS.get("wenxin", ""),
         }
 
+        if user_api_key and user_provider:
+            API_KEYS_MAP[user_provider] = user_api_key
+
         ordered = []
-        for entry in image_fallback:
-            if entry[0] == self.provider:
-                ordered.append(entry)
-        for entry in image_fallback:
-            if entry[0] != self.provider:
+        if user_provider:
+            for entry in image_fallback:
+                if entry[0] == user_provider:
+                    ordered.append(entry)
+            is_user_image_mode = True
+        else:
+            is_user_image_mode = False
+            for entry in image_fallback:
                 ordered.append(entry)
 
         errors = []
@@ -595,7 +685,9 @@ class AIChatBot:
                 skipped.append((provider_name, remaining))
                 continue
             try:
-                result = call_fn(prompt, size, api_key=api_key, image_model=default_model)
+                result = call_fn(enhanced, size, api_key=api_key,
+                                 image_model=default_model,
+                                 reference_image=reference_image)
                 if result.get("success"):
                     if provider_name != self.provider:
                         print(f"[image fallback] {self.provider} 失败，已自动切换到 {provider_name}")
@@ -617,23 +709,67 @@ class AIChatBot:
         return {"success": False, "error": "图片生成失败，所有可用服务均不可用：\n" + "\n".join(f"  - {e}" for e in errors)}
 
     def _call_dalle(self, prompt: str, size: str,
-                    api_key: str = None, image_model: str = None) -> dict:
-        url = "https://api.openai.com/v1/images/generations"
+                    api_key: str = None, image_model: str = None,
+                    reference_image: str = None) -> dict:
         key = api_key or self.api_key
         model = image_model or self.image_model or "dall-e-3"
-        headers = {
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "model": model,
-            "prompt": prompt,
-            "n": 1,
-            "size": size,
-            "response_format": "b64_json"
-        }
 
-        response = self.session.post(url, headers=headers, json=data, timeout=90)
+        if reference_image:
+            url = "https://api.openai.com/v1/images/edits"
+            headers = {
+                "Authorization": f"Bearer {key}",
+            }
+            import io
+            try:
+                img_bytes = base64.b64decode(reference_image)
+            except Exception:
+                img_bytes = base64.b64decode(reference_image.split(",")[-1] if "," in reference_image else reference_image)
+
+            import tempfile
+            import os as _os
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                f.write(img_bytes)
+                tmp_path = f.name
+            try:
+                data = {
+                    "model": model,
+                    "prompt": prompt[:4000],
+                    "size": size,
+                    "response_format": "b64_json",
+                    "n": 1,
+                }
+                if model == "dall-e-3":
+                    data["style"] = "vivid"
+                with open(tmp_path, "rb") as img_file:
+                    files = {"image": img_file}
+                    form_data = {}
+                    for k, v in data.items():
+                        form_data[k] = (None, str(v))
+                    response = self.session.post(url, headers=headers,
+                                                 data=data, files=files, timeout=120)
+            finally:
+                try:
+                    _os.unlink(tmp_path)
+                except Exception:
+                    pass
+        else:
+            url = "https://api.openai.com/v1/images/generations"
+            headers = {
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json"
+            }
+            data = {
+                "model": model,
+                "prompt": prompt[:4000],
+                "n": 1,
+                "size": size,
+                "response_format": "b64_json"
+            }
+            if model == "dall-e-3":
+                data["style"] = "vivid"
+                data["quality"] = "hd"
+            response = self.session.post(url, headers=headers, json=data, timeout=120)
+
         try:
             response.raise_for_status()
         except requests.exceptions.HTTPError as e:
@@ -657,9 +793,10 @@ class AIChatBot:
         }
 
     def _call_wenxin_image(self, prompt: str, size: str,
-                           api_key: str = None, image_model: str = None) -> dict:
+                           api_key: str = None, image_model: str = None,
+                           reference_image: str = None) -> dict:
         key = api_key or self.api_key
-        model = image_model or self.image_model or "qwen-image"
+        model = image_model or self.image_model or "ernie-image-v2"
         width, height = 1024, 1024
         if "x" in size:
             try:
@@ -674,11 +811,15 @@ class AIChatBot:
         }
         data = {
             "model": model,
-            "prompt": prompt,
+            "prompt": prompt[:2000],
             "n": 1,
             "size": f"{width}x{height}",
             "response_format": "url"
         }
+        if reference_image:
+            clean_ref = reference_image.split(",")[-1] if "," in reference_image else reference_image
+            data["image"] = clean_ref
+            data["strength"] = 0.75
 
         response = self.session.post(url, headers=headers, json=data, timeout=120)
         try:
@@ -711,9 +852,13 @@ class AIChatBot:
             return {"success": False, "error": f"返回格式异常: {result}"}
 
     def _call_wanx(self, prompt: str, size: str,
-                   api_key: str = None, image_model: str = None) -> dict:
+                   api_key: str = None, image_model: str = None,
+                   reference_image: str = None) -> dict:
         key = api_key or self.api_key
         model = image_model or self.image_model or "wanx2.1-t2i-turbo"
+        if reference_image and "wanx2.1-imageedit" not in model:
+            model = "wanx2.1-imageedit"
+
         create_url = f"{self.dashscope_base_url}/services/aigc/text2image/image-synthesis"
         query_url = f"{self.dashscope_base_url}/tasks/{{task_id}}"
 
@@ -735,13 +880,18 @@ class AIChatBot:
         data = {
             "model": model,
             "input": {
-                "prompt": prompt
+                "prompt": prompt[:2000]
             },
             "parameters": {
                 "size": wanx_size,
                 "n": 1
             }
         }
+
+        if reference_image:
+            clean_ref = reference_image.split(",")[-1] if "," in reference_image else reference_image
+            data["input"]["image"] = clean_ref
+            data["parameters"]["strength"] = 0.75
 
         print(f"  [图片生成] 正在提交任务 (模型: {model})...")
         t0 = time.time()

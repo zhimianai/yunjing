@@ -18,15 +18,11 @@ def config():
     global PROVIDER, MODEL, API_KEYS, _bot_ref
 
     if request.method == 'GET':
-        all_keys = {}
-        for p in API_KEYS:
-            all_keys[p] = API_KEYS.get(p, '')
         config_data = {
             'provider': PROVIDER,
             'model': MODEL,
             'enable_search': _bot_ref.enable_search if _bot_ref else ENABLE_SEARCH,
-            'api_key': API_KEYS.get(PROVIDER, ''),
-            'api_keys': all_keys
+            'has_server_key': {p: bool(API_KEYS.get(p)) for p in API_KEYS}
         }
         return jsonify({'success': True, 'config': config_data})
 
